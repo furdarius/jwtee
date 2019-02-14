@@ -7,13 +7,18 @@ import (
 )
 
 // Builder used to build encoded and signed token.
-type Builder struct {
+type Builder interface {
+	Build(claims encoding.BinaryMarshaler, signer Signer, key Key) (*DecodedParts, error)
+}
+
+// TokenBuilder implements Builder.
+type TokenBuilder struct {
 	h Header
 }
 
-// NewBuilder returns new instance of Builder.
-func NewBuilder() *Builder {
-	return &Builder{
+// NewTokenBuilder returns new instance of TokenBuilder.
+func NewTokenBuilder() *TokenBuilder {
+	return &TokenBuilder{
 		h: Header{
 			Typ: "JWT",
 		},
@@ -21,33 +26,44 @@ func NewBuilder() *Builder {
 }
 
 // WithKID used to setup the kid (key ID) Header Parameter.
-func (b *Builder) WithKID(kid string) *Builder {
+func (b *TokenBuilder) WithKID(kid string) *TokenBuilder {
 	b.h.Kid = kid
 
 	return b
 }
 
 // Build used to construct and encode JWT.
-func (b *Builder) Build(claims encoding.BinaryMarshaler, signer Signer, key Key) ([]byte, error) {
+func (b *TokenBuilder) Build(claims encoding.BinaryMarshaler, signer Signer, key Key) (*DecodedParts, error) {
 	// TODO: Possible to reduce allocation if encode parts in same buffer
 	encodedHeader := b.encodeHeader(signer)
 
-	encodedClaims, err := b.encodeClaims(claims)
+	rawClaims, encodedClaims, err := b.encodeClaims(claims)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to encode claims")
 	}
 
 	payload := b.buildPayload(encodedHeader, encodedClaims)
 
-	signed, err := b.signPayload(payload, signer, key)
+	signed, signature, err := b.signPayload(payload, signer, key)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to sign payload")
 	}
 
-	return signed, nil
+	parts := &DecodedParts{
+		raw: signed,
+		header: Header{
+			Typ: "JWT",
+			Alg: signer.GetAlgorithmID(),
+		},
+		claims:    rawClaims,
+		payload:   payload,
+		signature: signature,
+	}
+
+	return parts, nil
 }
 
-func (b *Builder) concatParts(p1, p2, sep []byte) []byte {
+func (b *TokenBuilder) concatParts(p1, p2, sep []byte) []byte {
 	buf := make([]byte, len(p1)+len(p2)+1)
 	copy(buf[:len(p1)], p1)
 	copy(buf[len(p1):len(p1)+1], sep)
@@ -56,36 +72,38 @@ func (b *Builder) concatParts(p1, p2, sep []byte) []byte {
 	return buf
 }
 
-func (b *Builder) buildPayload(headers, claims []byte) []byte {
+func (b *TokenBuilder) buildPayload(headers, claims []byte) []byte {
 	return b.concatParts(headers, claims, []byte{sep})
 }
 
-func (b *Builder) signPayload(payload []byte, signer Signer, key Key) ([]byte, error) {
-	signature, err := signer.Sign(payload, key)
+func (b *TokenBuilder) signPayload(payload []byte, signer Signer, key Key) (signed, signature []byte, err error) {
+	signature, err = signer.Sign(payload, key)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	encodedSignature := make([]byte, base64.RawURLEncoding.EncodedLen(len(signature)))
 	base64.RawURLEncoding.Encode(encodedSignature, signature)
 
-	return b.concatParts(payload, encodedSignature, []byte{sep}), nil
+	signed = b.concatParts(payload, encodedSignature, []byte{sep})
+
+	return signed, signature, nil
 }
 
-func (b *Builder) encodeClaims(claims encoding.BinaryMarshaler) ([]byte, error) {
-	buf, err := claims.MarshalBinary()
+func (b *TokenBuilder) encodeClaims(claims encoding.BinaryMarshaler) (raw, encoded []byte, err error) {
+	raw, err = claims.MarshalBinary()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	encoded := make([]byte, base64.RawURLEncoding.EncodedLen(len(buf)))
-	base64.RawURLEncoding.Encode(encoded, buf)
+	encoded = make([]byte, base64.RawURLEncoding.EncodedLen(len(raw)))
+	base64.RawURLEncoding.Encode(encoded, raw)
 
-	return encoded, nil
+	return raw, encoded, nil
 }
 
 // nolint: gocyclo
-func (b *Builder) encodeHeader(signer Signer) []byte {
+func (b *TokenBuilder) encodeHeader(signer Signer) []byte {
 	if b.h.Kid != "" && b.h.Typ == "JWT" {
 		algID := signer.GetAlgorithmID()
 		algIDLen := len(algID)

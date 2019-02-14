@@ -25,7 +25,7 @@ func main() {
 
 	hmacSigner := signer.NewHS256()
 	key := jwtee.NewSharedSecretKey(secret)
-	builder := jwtee.NewBuilder()
+	builder := jwtee.NewTokenBuilder()
 
 	claims := myclaims{
 		RegisteredClaims: jwtee.RegisteredClaims{
@@ -36,9 +36,14 @@ func main() {
 		Admin: true,
 	}
 
-	rawJWT, err := builder.Build(claims, hmacSigner, key)
+	tokenParts, err := builder.Build(claims, hmacSigner, key)
 	if err != nil {
 		log.Fatalf("failed to build jwt: %v", err)
+	}
+
+	rawJWT, err := tokenParts.MarshalText()
+	if err != nil {
+		log.Fatalf("failed to marshal token parts: %v", err)
 	}
 
 	fmt.Println(string(rawJWT))

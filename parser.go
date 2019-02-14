@@ -36,25 +36,25 @@ func (p *JSONParser) Parse(jwt json.RawMessage) (*DecodedParts, error) {
 		return nil, ErrPartMissed
 	}
 
-	buf := make([]byte, len(jwt))
+	decoded := make([]byte, len(jwt))
 
-	headerN, err := base64.RawURLEncoding.Decode(buf, jwt[:firstDot])
+	headerN, err := base64.RawURLEncoding.Decode(decoded, jwt[:firstDot])
 	if err != nil {
 		return nil, errors.New("failed to decode header from base64url: " + err.Error())
 	}
 
-	claimsN, err := base64.RawURLEncoding.Decode(buf[headerN:], jwt[firstDot+1:lastDot])
+	claimsN, err := base64.RawURLEncoding.Decode(decoded[headerN:], jwt[firstDot+1:lastDot])
 	if err != nil {
 		return nil, errors.New("failed to decode claims from base64url: " + err.Error())
 	}
 
-	signatureN, err := base64.RawURLEncoding.Decode(buf[headerN+claimsN:], jwt[lastDot+1:])
+	signatureN, err := base64.RawURLEncoding.Decode(decoded[headerN+claimsN:], jwt[lastDot+1:])
 	if err != nil {
 		return nil, errors.New("failed to decode signature from base64url: " + err.Error())
 	}
 
 	var h Header
-	err = json.Unmarshal(buf[:headerN], &h)
+	err = json.Unmarshal(decoded[:headerN], &h)
 	if err != nil {
 		return nil, errors.New("failed to unmarshal header: " + err.Error())
 	}
@@ -62,9 +62,9 @@ func (p *JSONParser) Parse(jwt json.RawMessage) (*DecodedParts, error) {
 	t := &DecodedParts{
 		raw:       jwt,
 		header:    h,
-		claims:    buf[headerN : headerN+claimsN],
+		claims:    decoded[headerN : headerN+claimsN],
 		payload:   jwt[:lastDot],
-		signature: buf[headerN+claimsN : headerN+claimsN+signatureN],
+		signature: decoded[headerN+claimsN : headerN+claimsN+signatureN],
 	}
 
 	return t, nil

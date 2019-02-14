@@ -22,20 +22,19 @@ func (c testclaims) MarshalBinary() (data []byte, err error) {
 }
 
 func TestBuilder_Build(t *testing.T) {
-
 	tests := []struct {
 		desc    string
 		key     jwtee.Key
 		signer  jwtee.Signer
-		builder *jwtee.Builder
+		builder jwtee.Builder
 		claims  encoding.BinaryMarshaler
-		checker func(t *testing.T, rawJWT []byte, err error)
+		checker func(t *testing.T, parts *jwtee.DecodedParts, err error)
 	}{
 		{
 			desc:    "successful building with HS256",
 			key:     jwtee.NewSharedSecretKey([]byte(`12345`)),
 			signer:  signer.NewHS256(),
-			builder: jwtee.NewBuilder(),
+			builder: jwtee.NewTokenBuilder(),
 			claims: testclaims{
 				RegisteredClaims: jwtee.RegisteredClaims{
 					Sub: "1234567890",
@@ -44,10 +43,13 @@ func TestBuilder_Build(t *testing.T) {
 				Name:  "John Doe",
 				Admin: true,
 			},
-			checker: func(t *testing.T, actual []byte, err error) {
+			checker: func(t *testing.T, parts *jwtee.DecodedParts, err error) {
 				assert.NoError(t, err)
 
 				expected := []byte(`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE1MTYyMzkwMjIsInN1YiI6IjEyMzQ1Njc4OTAiLCJuYW1lIjoiSm9obiBEb2UiLCJhZG1pbiI6dHJ1ZX0.VlbSuOtuL9PoPW1xdBwKsf-Z4kLHI0wKWwi9FQphF-c`)
+
+				actual, err := parts.MarshalText()
+				assert.NoError(t, err)
 
 				assert.Equal(t, expected, actual)
 			},
@@ -56,8 +58,8 @@ func TestBuilder_Build(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			rawJWT, err := test.builder.Build(test.claims, test.signer, test.key)
-			test.checker(t, rawJWT, err)
+			parts, err := test.builder.Build(test.claims, test.signer, test.key)
+			test.checker(t, parts, err)
 		})
 	}
 }
